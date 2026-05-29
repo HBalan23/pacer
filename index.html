@@ -3,15 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pacer</title>
+    <title>Pacer Pro</title>
     <style>
         :root {
             --bg-color: #0f172a;
             --card-bg: #1e293b;
             --text-color: #f8fafc;
-            --accent-color: #38bdf8;
-            --warning-color: #f43f5e;
+            --drink-color: #f43f5e;
+            --water-color: #38bdf8;
             --success-color: #10b981;
+            --warning-color: #fbbf24;
+            --lock-color: #64748b;
         }
 
         body {
@@ -47,8 +49,8 @@
             width: 100%;
             max-width: 350px;
             text-align: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            margin-bottom: 40px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
         }
 
         .status-title {
@@ -60,14 +62,16 @@
         }
 
         .status-value {
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             font-weight: 700;
             margin-bottom: 16px;
+            min-height: 1.5rem;
         }
 
         .stats {
-            display: flex;
-            justify-content: space-around;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
             border-top: 1px solid #334155;
             padding-top: 16px;
             font-size: 0.875rem;
@@ -80,30 +84,51 @@
 
         .stat-number {
             font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            width: 100%;
+            max-width: 350px;
+            align-items: center;
         }
 
         .main-btn {
-            background-color: var(--accent-color);
-            color: #000;
             border: none;
-            border-radius: 50%;
-            width: 200px;
-            height: 200px;
-            font-size: 1.5rem;
+            border-radius: 100px;
+            width: 100%;
+            padding: 20px;
+            font-size: 1.25rem;
             font-weight: 700;
             cursor: pointer;
-            box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.3);
-            transition: transform 0.1s ease, background-color 0.2s ease;
+            transition: transform 0.1s ease, background-color 0.2s ease, opacity 0.2s ease;
             -webkit-tap-highlight-color: transparent;
+            color: #fff;
         }
 
         .main-btn:active {
-            transform: scale(0.95);
+            transform: scale(0.97);
         }
 
-        .main-btn.waiting {
-            background-color: var(--warning-color);
-            box-shadow: 0 10px 15px -3px rgba(244, 63, 94, 0.3);
+        .btn-drink {
+            background-color: var(--drink-color);
+            box-shadow: 0 10px 15px -3px rgba(244, 63, 94, 0.2);
+        }
+
+        .btn-water {
+            background-color: var(--water-color);
+            box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.2);
+            color: #0f172a;
+        }
+
+        .btn-locked {
+            background-color: var(--lock-color) !important;
+            box-shadow: none !important;
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         .footer {
@@ -127,7 +152,7 @@
 
     <div class="container">
         <div class="status-card">
-            <div class="status-title">Current Status</div>
+            <div class="status-title">System Status</div>
             <div id="status-text" class="status-value" style="color: var(--success-color);">Ready for Round 1</div>
             
             <div class="stats">
@@ -136,13 +161,24 @@
                     <div id="total-drinks" class="stat-number">0</div>
                 </div>
                 <div>
-                    <div class="stat-label">Next Available</div>
+                    <div class="stat-label">Total Water</div>
+                    <div id="total-water" class="stat-number" style="color: var(--water-color);">0</div>
+                </div>
+                <div>
+                    <div class="stat-label">Hydration Ratio</div>
+                    <div id="hydration-ratio" class="stat-number">1.0</div>
+                </div>
+                <div>
+                    <div class="stat-label">Next Clear Time</div>
                     <div id="next-time" class="stat-number">Now</div>
                 </div>
             </div>
         </div>
 
-        <button id="action-btn" class="main-btn" onclick="logDrink()">LOG DRINK</button>
+        <div class="button-group">
+            <button id="drink-btn" class="main-btn btn-drink" onclick="logDrink()">LOG DRINK</button>
+            <button id="water-btn" class="main-btn btn-water" onclick="logWater()">LOG WATER</button>
+        </div>
     </div>
 
     <div class="footer">
@@ -150,86 +186,154 @@
     </div>
 
     <script>
-        // 1 drink = 60 minutes of processing time
+        // Constants & Thresholds
         const MINUTES_PER_DRINK = 60;
+        const MAX_DRINKS = 5;
+        const CURFEW_START = 1; // 1:00 AM
+        const CURFEW_END = 10;  // 10:00 AM (Locks app during late night/early morning)
 
         function updateUI() {
             const session = JSON.parse(localStorage.getItem('drinking_session'));
             const statusText = document.getElementById('status-text');
             const totalDrinks = document.getElementById('total-drinks');
+            const totalWater = document.getElementById('total-water');
+            const hydrationRatioText = document.getElementById('hydration-ratio');
             const nextTime = document.getElementById('next-time');
-            const actionBtn = document.getElementById('action-btn');
+            const drinkBtn = document.getElementById('drink-btn');
 
+            const now = new Date();
+            const currentHour = now.getHours();
+
+            // 1. Initial State
             if (!session) {
                 statusText.innerText = "Ready for Round 1";
                 statusText.style.color = "var(--success-color)";
                 totalDrinks.innerText = "0";
+                totalWater.innerText = "0";
+                hydrationRatioText.innerText = "1.0";
                 nextTime.innerText = "Now";
-                actionBtn.classList.remove('waiting');
+                drinkBtn.classList.remove('btn-locked');
                 return;
             }
 
+            // Update raw numbers
             totalDrinks.innerText = session.drinkCount;
+            totalWater.innerText = session.waterCount;
             
-            // Calculate absolute clearance time: First Drink Time + (Count * 60 minutes)
+            // Calculate Hydration Ratio
+            const ratio = session.drinkCount === 0 ? 1.0 : (session.waterCount / session.drinkCount);
+            hydrationRatioText.innerText = ratio.toFixed(1);
+
+            // 2. The Hard Stop Lockouts
+            const isCurfew = currentHour >= CURFEW_START && currentHour < CURFEW_END;
+            const isMaxVolume = session.drinkCount >= MAX_DRINKS;
+
+            if (isMaxVolume || isCurfew) {
+                statusText.innerText = isMaxVolume ? "LOCKOUT: MAX DRINKS (5) REACHED" : "LOCKOUT: 1 AM CURFEW";
+                statusText.style.color = "var(--drink-color)";
+                drinkBtn.classList.add('btn-locked');
+                nextTime.innerText = "Locked";
+                return;
+            }
+
+            // 3. The Hydration Lockout
+            if (session.drinkCount > 0 && ratio < 1.0) {
+                statusText.innerText = "DEHYDRATED: LOG WATER TO UNLOCK";
+                statusText.style.color = "var(--water-color)";
+                hydrationRatioText.style.color = "var(--drink-color)";
+                drinkBtn.classList.add('btn-locked');
+                // Calculate time anyway so user knows
+                const firstDrinkTime = new Date(session.firstDrinkTime);
+                const reqMins = session.drinkCount * MINUTES_PER_DRINK;
+                const clearTime = new Date(firstDrinkTime.getTime() + reqMins * 60000);
+                nextTime.innerText = clearTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                return;
+            } else {
+                hydrationRatioText.style.color = "var(--text-color)";
+            }
+
+            // 4. Time Debt & Pacing Check
+            drinkBtn.classList.remove('btn-locked');
+            
             const firstDrinkTime = new Date(session.firstDrinkTime);
             const totalRequiredMinutes = session.drinkCount * MINUTES_PER_DRINK;
             const clearanceTime = new Date(firstDrinkTime.getTime() + totalRequiredMinutes * 60000);
-            
-            const now = new Date();
             
             if (now < clearanceTime) {
                 const diffMs = clearanceTime - now;
                 const diffMins = Math.ceil(diffMs / 60000);
                 
-                statusText.innerText = `In Time Debt (${diffMins}m left)`;
+                statusText.innerText = `TIME DEBT: ${diffMins} MINS LEFT`;
                 statusText.style.color = "var(--warning-color)";
                 nextTime.innerText = clearanceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                actionBtn.classList.add('waiting');
             } else {
-                statusText.innerText = "Clear to Drink";
+                statusText.innerText = "CLEAR TO DRINK";
                 statusText.style.color = "var(--success-color)";
                 nextTime.innerText = "Now";
-                actionBtn.classList.remove('waiting');
             }
         }
 
         function logDrink() {
             let session = JSON.parse(localStorage.getItem('drinking_session'));
             const now = new Date();
+            const currentHour = now.getHours();
 
+            // Intercept Hard Stops
+            if (session && session.drinkCount >= MAX_DRINKS) {
+                alert("SYSTEM LOCKED: You have reached the maximum safe limit of 5 drinks for the night.");
+                return;
+            }
+            if (currentHour >= CURFEW_START && currentHour < CURFEW_END) {
+                alert("SYSTEM LOCKED: It is past the 1:00 AM curfew. Alcohol severely degrades sleep quality from this point forward.");
+                return;
+            }
+
+            // Intercept Hydration
+            if (session && session.drinkCount > 0) {
+                const ratio = session.waterCount / session.drinkCount;
+                if (ratio < 1.0) {
+                    alert("HYDRATION LOCK: You must log a glass of water before you can log another alcoholic beverage.");
+                    return;
+                }
+            }
+
+            // Initialize or update
             if (!session) {
-                // Initialize clean session
-                session = {
-                    firstDrinkTime: now.toISOString(),
-                    drinkCount: 1
-                };
+                session = { firstDrinkTime: now.toISOString(), drinkCount: 1, waterCount: 0 };
                 localStorage.setItem('drinking_session', JSON.stringify(session));
-                alert("Drink 1 logged. Pace yourself! Next drink clear at: " + new Date(now.getTime() + MINUTES_PER_DRINK * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                alert("Round 1 logged! Next clear time is in 60 minutes.");
                 updateUI();
                 return;
             }
 
-            // Calculate current clearance time
+            // Check Time Debt Penalty
             const firstDrinkTime = new Date(session.firstDrinkTime);
             const totalRequiredMinutes = session.drinkCount * MINUTES_PER_DRINK;
             const clearanceTime = new Date(firstDrinkTime.getTime() + totalRequiredMinutes * 60000);
 
             if (now < clearanceTime) {
                 const diffMins = Math.ceil((clearanceTime - now) / 60000);
-                const confirmLog = confirm(`Hold up. You still have ${diffMins} minutes of processing left. Log early drink anyway?`);
+                const confirmLog = confirm(`TIME WARNING: You still have ${diffMins} minutes of processing left. Logging now incurs time debt. Proceed?`);
                 if (!confirmLog) return;
             }
 
-            // Increment drink count and save
             session.drinkCount += 1;
             localStorage.setItem('drinking_session', JSON.stringify(session));
+            updateUI();
+        }
+
+        function logWater() {
+            let session = JSON.parse(localStorage.getItem('drinking_session'));
+            const now = new Date();
+
+            if (!session) {
+                // If they drink water before their first alcohol, start tracking but don't penalize time
+                session = { firstDrinkTime: now.toISOString(), drinkCount: 0, waterCount: 1 };
+            } else {
+                session.waterCount += 1;
+            }
             
-            // Calculate new extended clearance time
-            const newRequiredMinutes = session.drinkCount * MINUTES_PER_DRINK;
-            const newClearanceTime = new Date(firstDrinkTime.getTime() + newRequiredMinutes * 60000);
-            
-            alert(`Drink ${session.drinkCount} logged. Next clear time: ` + newClearanceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            localStorage.setItem('drinking_session', JSON.stringify(session));
             updateUI();
         }
 
@@ -240,7 +344,7 @@
             }
         }
 
-        // Run UI update on page load and tick every 30 seconds to keep remaining minutes accurate
+        // Initialize and poll
         updateUI();
         setInterval(updateUI, 30000);
     </script>
