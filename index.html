@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pacer</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #f8fafc;
+            --accent-color: #38bdf8;
+            --warning-color: #f43f5e;
+            --success-color: #10b981;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .status-card {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            width: 100%;
+            max-width: 350px;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            margin-bottom: 40px;
+        }
+
+        .status-title {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+            margin-bottom: 8px;
+        }
+
+        .status-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            border-top: 1px solid #334155;
+            padding-top: 16px;
+            font-size: 0.875rem;
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .stat-number {
+            font-weight: 600;
+        }
+
+        .main-btn {
+            background-color: var(--accent-color);
+            color: #000;
+            border: none;
+            border-radius: 50%;
+            width: 200px;
+            height: 200px;
+            font-size: 1.5rem;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.3);
+            transition: transform 0.1s ease, background-color 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .main-btn:active {
+            transform: scale(0.95);
+        }
+
+        .main-btn.waiting {
+            background-color: var(--warning-color);
+            box-shadow: 0 10px 15px -3px rgba(244, 63, 94, 0.3);
+        }
+
+        .footer {
+            padding: 20px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .reset-btn {
+            background: none;
+            border: none;
+            color: #64748b;
+            font-size: 0.875rem;
+            text-decoration: underline;
+            cursor: pointer;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="status-card">
+            <div class="status-title">Current Status</div>
+            <div id="status-text" class="status-value" style="color: var(--success-color);">Ready for Round 1</div>
+            
+            <div class="stats">
+                <div>
+                    <div class="stat-label">Total Drinks</div>
+                    <div id="total-drinks" class="stat-number">0</div>
+                </div>
+                <div>
+                    <div class="stat-label">Next Available</div>
+                    <div id="next-time" class="stat-number">Now</div>
+                </div>
+            </div>
+        </div>
+
+        <button id="action-btn" class="main-btn" onclick="logDrink()">LOG DRINK</button>
+    </div>
+
+    <div class="footer">
+        <button class="reset-btn" onclick="resetSession()">Reset Session</button>
+    </div>
+
+    <script>
+        // 1 drink = 60 minutes of processing time
+        const MINUTES_PER_DRINK = 60;
+
+        function updateUI() {
+            const session = JSON.parse(localStorage.getItem('drinking_session'));
+            const statusText = document.getElementById('status-text');
+            const totalDrinks = document.getElementById('total-drinks');
+            const nextTime = document.getElementById('next-time');
+            const actionBtn = document.getElementById('action-btn');
+
+            if (!session) {
+                statusText.innerText = "Ready for Round 1";
+                statusText.style.color = "var(--success-color)";
+                totalDrinks.innerText = "0";
+                nextTime.innerText = "Now";
+                actionBtn.classList.remove('waiting');
+                return;
+            }
+
+            totalDrinks.innerText = session.drinkCount;
+            
+            // Calculate absolute clearance time: First Drink Time + (Count * 60 minutes)
+            const firstDrinkTime = new Date(session.firstDrinkTime);
+            const totalRequiredMinutes = session.drinkCount * MINUTES_PER_DRINK;
+            const clearanceTime = new Date(firstDrinkTime.getTime() + totalRequiredMinutes * 60000);
+            
+            const now = new Date();
+            
+            if (now < clearanceTime) {
+                const diffMs = clearanceTime - now;
+                const diffMins = Math.ceil(diffMs / 60000);
+                
+                statusText.innerText = `In Time Debt (${diffMins}m left)`;
+                statusText.style.color = "var(--warning-color)";
+                nextTime.innerText = clearanceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                actionBtn.classList.add('waiting');
+            } else {
+                statusText.innerText = "Clear to Drink";
+                statusText.style.color = "var(--success-color)";
+                nextTime.innerText = "Now";
+                actionBtn.classList.remove('waiting');
+            }
+        }
+
+        function logDrink() {
+            let session = JSON.parse(localStorage.getItem('drinking_session'));
+            const now = new Date();
+
+            if (!session) {
+                // Initialize clean session
+                session = {
+                    firstDrinkTime: now.toISOString(),
+                    drinkCount: 1
+                };
+                localStorage.setItem('drinking_session', JSON.stringify(session));
+                alert("Drink 1 logged. Pace yourself! Next drink clear at: " + new Date(now.getTime() + MINUTES_PER_DRINK * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                updateUI();
+                return;
+            }
+
+            // Calculate current clearance time
+            const firstDrinkTime = new Date(session.firstDrinkTime);
+            const totalRequiredMinutes = session.drinkCount * MINUTES_PER_DRINK;
+            const clearanceTime = new Date(firstDrinkTime.getTime() + totalRequiredMinutes * 60000);
+
+            if (now < clearanceTime) {
+                const diffMins = Math.ceil((clearanceTime - now) / 60000);
+                const confirmLog = confirm(`Hold up. You still have ${diffMins} minutes of processing left. Log early drink anyway?`);
+                if (!confirmLog) return;
+            }
+
+            // Increment drink count and save
+            session.drinkCount += 1;
+            localStorage.setItem('drinking_session', JSON.stringify(session));
+            
+            // Calculate new extended clearance time
+            const newRequiredMinutes = session.drinkCount * MINUTES_PER_DRINK;
+            const newClearanceTime = new Date(firstDrinkTime.getTime() + newRequiredMinutes * 60000);
+            
+            alert(`Drink ${session.drinkCount} logged. Next clear time: ` + newClearanceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            updateUI();
+        }
+
+        function resetSession() {
+            if (confirm("Are you sure you want to clear tonight's history?")) {
+                localStorage.removeItem('drinking_session');
+                updateUI();
+            }
+        }
+
+        // Run UI update on page load and tick every 30 seconds to keep remaining minutes accurate
+        updateUI();
+        setInterval(updateUI, 30000);
+    </script>
+</body>
+</html>
